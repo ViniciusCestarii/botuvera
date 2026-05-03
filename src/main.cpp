@@ -1,8 +1,9 @@
+#include "http.hpp"
 #include "socket.hpp"
-#include "utils.hpp"
 
 #include <arpa/inet.h>
 #include <iostream>
+#include <sstream>
 
 constexpr uint16_t PORT = 3000;
 
@@ -21,15 +22,16 @@ int main() {
 
       std::cout << "Connection from " << inet_ntoa(client.sin_addr) << ":"
                 << ntohs(client.sin_port) << "\n";
-
-      conn.send("Hello, world!\n");
-
       char buffer[1024];
       ssize_t n;
 
       while ((n = conn.recv(buffer, sizeof(buffer))) > 0) {
+        std::cout << buffer;
+        std::istringstream stream(std::string(buffer, n));
+        HTTPRequest req;
+        stream >> req;
         std::cout << "Received " << n << " bytes\n";
-        utils::dump({reinterpret_cast<std::uint8_t *>(buffer), static_cast<std::size_t>(n)});
+        std::cout << req;
       }
     }
 
