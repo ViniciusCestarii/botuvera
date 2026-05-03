@@ -3,7 +3,7 @@
 
 #include <arpa/inet.h>
 #include <iostream>
-#include <sstream>
+#include <string_view>
 
 constexpr uint16_t PORT = 3000;
 
@@ -22,16 +22,57 @@ int main() {
 
       std::cout << "Connection from " << inet_ntoa(client.sin_addr) << ":"
                 << ntohs(client.sin_port) << "\n";
-      char buffer[1024];
+      std::string buf;
+      char chunk[1024];
       ssize_t n;
 
-      while ((n = conn.recv(buffer, sizeof(buffer))) > 0) {
-        std::cout << buffer;
-        std::istringstream stream(std::string(buffer, n));
-        HTTPRequest req;
-        stream >> req;
-        std::cout << "Received " << n << " bytes\n";
-        std::cout << req;
+      while ((n = conn.recv(chunk, sizeof(chunk))) > 0) {
+        buf.append(chunk, n);
+
+        if (auto end = buf.find("\r\n\r\n"); end != std::string::npos) {
+          std::cout << buf;
+
+          HTTPRequest req(std::string_view(buf.data(), end + 4));
+
+          if (req.get_version() == HTTPVersion::UNKNOWN) {
+            std::string_view resp =
+                "HTTP/1.0 505 HTTP Version Not Supported\r\n"
+                "Content-Length: 0\r\n"
+                "Connection: close\r\n"
+                "Server: botuvera/0.1\r\n"
+                "\r\n";
+            conn.send(resp);
+            break;
+          }
+
+          if (req.get_method() != RequestMethod::GET) {
+            std::string_view resp = "HTTP/1.0 405 Method Not Allowed\r\n"
+                                    "Content-Length: 0\r\n"
+                                    "Allow: GET\r\n"
+                                    "Connection: close\r\n"
+                                    "Server: botuvera/0.1\r\n"
+                                    "\r\n";
+            conn.send(resp);
+            break;
+          }
+
+          std::string_view resp = "HTTP/1.0 200 OK\r\n"
+                                  "Content-Length: 60\r\n"
+                                  "Connection: close\r\n"
+                                  "Server: botuvera/0.1\r\n"
+                                  "\r\n"
+                                  "<html>"
+                                  "<body>"
+                                  "<h1>200 OK</h1>"
+                                  "<p>Basic Answer</p>"
+                                  "</body>"
+                                  "</html>";
+          conn.send(resp);
+
+          break;
+        }
+        if (buf.size() > 8192)
+          break;
       }
     }
 

@@ -1,17 +1,6 @@
 #include "http.hpp"
-#include <iostream>
 #include <ostream>
 #include <stdexcept>
-
-static void strip_cr(std::string &s) {
-  if (!s.empty() && s.back() == '\r')
-    s.pop_back();
-}
-
-std::istream &operator>>(std::istream &is, HTTPRequest &req) {
-  req.parse(is);
-  return is;
-}
 
 std::ostream &operator<<(std::ostream &os, RequestMethod m) {
   switch (m) {
@@ -33,6 +22,8 @@ std::ostream &operator<<(std::ostream &os, RequestMethod m) {
 
 std::ostream &operator<<(std::ostream &os, HTTPVersion v) {
   switch (v) {
+  case HTTPVersion::HTTP_1_0:
+    return os << "HTTP/1.0";
   case HTTPVersion::HTTP_1_1:
     return os << "HTTP/1.1";
   case HTTPVersion::UNKNOWN:
@@ -49,26 +40,34 @@ std::ostream &operator<<(std::ostream &os, const HTTPRequest &req) {
   return os;
 }
 
-void HTTPRequest::parse(std::istream &is) {
-  std::string line;
-  if (!std::getline(is, line))
+HTTPRequest::HTTPRequest(std::string_view data) {
+  size_t pos = 0;
+  auto next_line = [&]() -> std::string_view {
+    auto eol = data.find("\r\n", pos);
+    auto line = data.substr(pos, eol - pos);
+    pos = (eol == std::string_view::npos) ? data.size() : eol + 2;
+    return line;
+  };
+
+  auto line = next_line();
+  if (line.empty())
     throw std::runtime_error("Empty request");
-  strip_cr(line);
   parse_request_line(line);
-  while (std::getline(is, line)) {
-    strip_cr(line);
-    if (line.empty())
+
+  while (pos < data.size()) {
+    auto h = next_line();
+    if (h.empty())
       break;
-    parse_header(line);
+    parse_header(h);
   }
 }
 
 void HTTPRequest::parse_request_line(std::string_view line) {
   auto method_end = line.find(' ');
   auto path_end = line.find(' ', method_end + 1);
-  method = parse_method(line.substr(0, method_end));
-  path = line.substr(method_end + 1, path_end - method_end - 1);
-  version = parse_version(line.substr(path_end + 1));
+  method_ = parse_method(line.substr(0, method_end));
+  path_ = line.substr(method_end + 1, path_end - method_end - 1);
+  version_ = parse_version(line.substr(path_end + 1));
 }
 
 void HTTPRequest::parse_header(std::string_view line) {
@@ -78,7 +77,7 @@ void HTTPRequest::parse_header(std::string_view line) {
   auto key = line.substr(0, colon);
   auto value = line.substr(colon + 2);
   if (key == "Host")
-    host = std::string(value);
+    host_ = std::string(value);
 }
 
 RequestMethod HTTPRequest::parse_method(std::string_view s) {
@@ -96,6 +95,8 @@ RequestMethod HTTPRequest::parse_method(std::string_view s) {
 }
 
 HTTPVersion HTTPRequest::parse_version(std::string_view s) {
+  if (s == "HTTP/1.0")
+    return HTTPVersion::HTTP_1_0;
   if (s == "HTTP/1.1")
     return HTTPVersion::HTTP_1_1;
   return HTTPVersion::UNKNOWN;
