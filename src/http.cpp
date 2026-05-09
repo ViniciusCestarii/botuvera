@@ -1,6 +1,20 @@
 #include "http.hpp"
 #include <ostream>
 #include <stdexcept>
+#include <string_view>
+
+namespace {
+std::string_view version_to_sv(HTTPVersion v) {
+  switch (v) {
+  case HTTPVersion::HTTP_1_0:
+    return "HTTP/1.0";
+  case HTTPVersion::HTTP_1_1:
+    return "HTTP/1.1";
+  case HTTPVersion::UNKNOWN:
+    return "UNKNOWN";
+  }
+  return "UNKNOWN";
+}
 
 std::ostream &operator<<(std::ostream &os, RequestMethod m) {
   switch (m) {
@@ -21,16 +35,23 @@ std::ostream &operator<<(std::ostream &os, RequestMethod m) {
 }
 
 std::ostream &operator<<(std::ostream &os, HTTPVersion v) {
-  switch (v) {
-  case HTTPVersion::HTTP_1_0:
-    return os << "HTTP/1.0";
-  case HTTPVersion::HTTP_1_1:
-    return os << "HTTP/1.1";
-  case HTTPVersion::UNKNOWN:
-    return os << "UNKNOWN";
-  }
-  return os << "UNKNOWN";
+  return os << version_to_sv(v);
 }
+
+std::string_view status_to_reason_sv(HTTPStatus s) {
+  switch (s) {
+  case HTTPStatus::OK:
+    return "OK";
+  case HTTPStatus::NotFound:
+    return "Not Found";
+  case HTTPStatus::MethodNotAllowed:
+    return "Method Not Allowed";
+  case HTTPStatus::VersionNotSupported:
+    return "HTTP Version Not Supported";
+  }
+  return "Unknown";
+};
+} // namespace
 
 std::ostream &operator<<(std::ostream &os, const HTTPRequest &req) {
   os << "Method:  " << req.get_method() << "\n"
@@ -100,4 +121,24 @@ HTTPVersion HTTPRequest::parse_version(std::string_view s) {
   if (s == "HTTP/1.1")
     return HTTPVersion::HTTP_1_1;
   return HTTPVersion::UNKNOWN;
+}
+
+HTTPResponse::HTTPResponse()
+    : headers_{
+          {"Content-Length", "0"},
+          {"Connection", "close"},
+          {"Server", "botuvera/0.1"},
+      } {}
+
+std::string HTTPResponse::to_network_string() const {
+  std::string status_line = std::string(version_to_sv(version_)) + " " +
+                            std::to_string(static_cast<int>(status_)) + " " +
+                            std::string(status_to_reason_sv(status_)) + "\r\n";
+
+  std::string header_lines;
+  for (const auto &[key, value] : headers_) {
+    header_lines += key + ": " + value + "\r\n";
+  }
+
+  return status_line + header_lines + "\r\n" + body_;
 }

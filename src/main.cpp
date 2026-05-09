@@ -35,39 +35,34 @@ int main() {
           HTTPRequest req(std::string_view(buf.data(), end + 4));
 
           if (req.get_version() == HTTPVersion::UNKNOWN) {
-            std::string_view resp =
-                "HTTP/1.0 505 HTTP Version Not Supported\r\n"
-                "Content-Length: 0\r\n"
-                "Connection: close\r\n"
-                "Server: botuvera/0.1\r\n"
-                "\r\n";
-            conn.send(resp);
+
+            auto resp = HTTPResponse()
+                            .set_version(HTTPVersion::HTTP_1_0)
+                            .set_status(HTTPStatus::VersionNotSupported);
+
+            conn.send(resp.to_network_string());
             break;
           }
 
           if (req.get_method() != RequestMethod::GET) {
-            std::string_view resp = "HTTP/1.0 405 Method Not Allowed\r\n"
-                                    "Content-Length: 0\r\n"
-                                    "Allow: GET\r\n"
-                                    "Connection: close\r\n"
-                                    "Server: botuvera/0.1\r\n"
-                                    "\r\n";
-            conn.send(resp);
+            auto resp = HTTPResponse()
+                            .set_version(HTTPVersion::HTTP_1_0)
+                            .set_status(HTTPStatus::MethodNotAllowed)
+                            .set_header("Allow", "GET");
+            conn.send(resp.to_network_string());
             break;
           }
 
-          std::string_view resp = "HTTP/1.0 200 OK\r\n"
-                                  "Content-Length: 60\r\n"
-                                  "Connection: close\r\n"
-                                  "Server: botuvera/0.1\r\n"
-                                  "\r\n"
-                                  "<html>"
-                                  "<body>"
-                                  "<h1>200 OK</h1>"
-                                  "<p>Basic Answer</p>"
-                                  "</body>"
-                                  "</html>";
-          conn.send(resp);
+          auto resp = HTTPResponse()
+                          .set_version(HTTPVersion::HTTP_1_0)
+                          .set_status(HTTPStatus::OK)
+                          .set_body("<html>"
+                                    "<body>"
+                                    "<h1>200 OK</h1>"
+                                    "<p>Basic Answer</p>"
+                                    "</body>"
+                                    "</html>");
+          conn.send(resp.to_network_string());
 
           break;
         }

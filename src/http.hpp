@@ -3,6 +3,7 @@
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 
 enum class RequestMethod : uint8_t { UNKNOWN, GET, POST, HEAD, PUT, OPTIONS };
 enum class HTTPVersion : uint8_t { UNKNOWN, HTTP_1_0, HTTP_1_1 };
@@ -30,3 +31,40 @@ private:
 };
 
 std::ostream &operator<<(std::ostream &os, const HTTPRequest &req);
+
+enum class HTTPStatus : uint16_t {
+  OK = 200,
+  NotFound = 404,
+  MethodNotAllowed = 405,
+  VersionNotSupported = 505
+};
+class HTTPResponse {
+public:
+  HTTPResponse();
+
+  HTTPResponse &set_version(HTTPVersion version) {
+    version_ = version;
+    return *this;
+  };
+  HTTPResponse &set_status(HTTPStatus status) {
+    status_ = status;
+    return *this;
+  };
+  HTTPResponse &set_header(std::string key, std::string value) {
+    headers_[std::move(key)] = std::move(value);
+    return *this;
+  };
+  HTTPResponse &set_body(std::string body) {
+    body_ = std::move(body);
+    set_header("Content-Length", std::to_string(body_.size()));
+    return *this;
+  };
+
+  std::string to_network_string() const;
+
+private:
+  HTTPVersion version_ = HTTPVersion::HTTP_1_0;
+  HTTPStatus status_ = HTTPStatus::OK;
+  std::unordered_map<std::string, std::string> headers_;
+  std::string body_;
+};
