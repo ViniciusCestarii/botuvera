@@ -7,6 +7,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <thread>
 
 int main(int argc, char **argv) {
   auto cfg = parse_config(argc, argv);
@@ -23,10 +24,7 @@ int main(int argc, char **argv) {
     server.listen();
     std::cout << "Serving " << cfg->root << " on " << cfg->host << ":" << cfg->port << "\n";
 
-    while (true) {
-      sockaddr_in client{};
-      TCPSocket conn = server.accept(client);
-
+    auto handle = [&file_server](TCPSocket conn, sockaddr_in client) {
       std::cout << "Connection from " << inet_ntoa(client.sin_addr) << ":"
                 << ntohs(client.sin_port) << "\n";
 
@@ -46,6 +44,12 @@ int main(int argc, char **argv) {
         if (buf.size() > 8192)
           break;
       }
+    };
+
+    while (true) {
+      sockaddr_in client{};
+      TCPSocket conn = server.accept(client);
+      std::thread(handle, std::move(conn), client).detach();
     }
   } catch (const std::system_error &e) {
     std::cerr << e.what() << "\n";
