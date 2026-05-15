@@ -31,11 +31,13 @@ void TCPSocket::reuse_address() {
     throw std::system_error(errno, std::generic_category(), "setsockopt");
 }
 
-void TCPSocket::bind(std::uint16_t port) {
+void TCPSocket::bind(const std::string &host, std::uint16_t port) {
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_port = htons(port);
-  addr.sin_addr.s_addr = INADDR_ANY;
+
+  if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1)
+    throw std::system_error(errno, std::generic_category(), "invalid host: " + host);
 
   if (::bind(fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == -1)
     throw std::system_error(errno, std::generic_category(), "bind");

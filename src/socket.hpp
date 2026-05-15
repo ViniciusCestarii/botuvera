@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <netinet/in.h>
+#include <string>
 #include <string_view>
 
 class TCPSocket {
@@ -19,7 +20,7 @@ public:
   ~TCPSocket();
 
   void reuse_address();
-  void bind(uint16_t port);
+  void bind(const std::string &host, uint16_t port);
   void listen(int backlog = 5);
   TCPSocket accept(sockaddr_in &client);
   void send(std::string_view data);

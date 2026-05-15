@@ -6,6 +6,7 @@ add_executable(botuvera
   src/socket.cpp
   src/http.cpp
   src/static_server.cpp
+  src/config.cpp
 )
 
 target_compile_features(botuvera PRIVATE cxx_std_23)

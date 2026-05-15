@@ -1,4 +1,5 @@
 #include "http.hpp"
+#include "version.hpp"
 #include <ostream>
 #include <stdexcept>
 #include <string_view>
@@ -127,7 +128,7 @@ HTTPResponse::HTTPResponse()
     : headers_{
           {"Content-Length", "0"},
           {"Connection", "close"},
-          {"Server", "botuvera/0.1"},
+          {"Server", std::string(botuvera::USER_AGENT)},
       } {}
 
 std::string HTTPResponse::to_network_string() const {

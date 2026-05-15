@@ -1,38 +1,27 @@
+#include "config.hpp"
 #include "http.hpp"
 #include "socket.hpp"
 #include "static_server.hpp"
 
 #include <arpa/inet.h>
-#include <filesystem>
 #include <iostream>
 #include <string>
 #include <string_view>
 
-namespace fs = std::filesystem;
-
-constexpr uint16_t PORT = 3000;
-
 int main(int argc, char **argv) {
-  if (argc < 2) {
-    std::cerr << "usage: " << argv[0] << " <root-dir>\n";
-    return 1;
-  }
+  auto cfg = parse_config(argc, argv);
 
-  std::error_code ec;
-  fs::path root = fs::canonical(argv[1], ec);
-  if (ec || !fs::is_directory(root)) {
-    std::cerr << "invalid root directory: " << argv[1] << "\n";
+  if (!cfg)
     return 1;
-  }
 
-  StaticFileServer file_server(root);
+  StaticFileServer file_server(cfg->root);
 
   try {
     TCPSocket server;
     server.reuse_address();
-    server.bind(PORT);
+    server.bind(cfg->host, cfg->port);
     server.listen();
-    std::cout << "Serving " << root << " on port " << PORT << "\n";
+    std::cout << "Serving " << cfg->root << " on " << cfg->host << ":" << cfg->port << "\n";
 
     while (true) {
       sockaddr_in client{};
