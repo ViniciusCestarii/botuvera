@@ -36,6 +36,7 @@ enum class HTTPStatus : uint16_t {
   OK = 200,
   NotFound = 404,
   MethodNotAllowed = 405,
+  InternalServerError = 500,
   VersionNotSupported = 505
 };
 class HTTPResponse {
@@ -59,6 +60,10 @@ public:
     set_header("Content-Length", std::to_string(body_.size()));
     return *this;
   };
+  HTTPResponse &suppress_body() {
+    omit_body_ = true;
+    return *this;
+  };
 
   std::string to_network_string() const;
 
@@ -67,4 +72,5 @@ private:
   HTTPStatus status_ = HTTPStatus::OK;
   std::unordered_map<std::string, std::string> headers_;
   std::string body_;
+  bool omit_body_ = false;
 };

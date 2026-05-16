@@ -4,7 +4,6 @@
 #include <cctype>
 #include <fstream>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -92,6 +91,23 @@ std::optional<std::string> read_file(const fs::path &p) {
   return out;
 }
 
+HTTPResponse make_404(bool suppress) {
+  HTTPResponse r;
+  r.set_status(HTTPStatus::NotFound)
+      .set_header("Content-Type", "text/html; charset=utf-8")
+      .set_body("<html><body><h1>404 Not Found</h1></body></html>");
+  if (suppress)
+    r.suppress_body();
+  return r;
+}
+
+HTTPResponse make_500() {
+  HTTPResponse r;
+  return r.set_status(HTTPStatus::InternalServerError)
+      .set_header("Content-Type", "text/html; charset=utf-8")
+      .set_body("<html><body><h1>500 Internal Server Error</h1></body></html>");
+}
+
 } // namespace
 
 StaticFileServer::StaticFileServer(fs::path root) : root_(std::move(root)) {}
@@ -102,23 +118,29 @@ HTTPResponse StaticFileServer::serve(const HTTPRequest &req) const {
   if (req.get_version() == HTTPVersion::UNKNOWN)
     return r.set_status(HTTPStatus::VersionNotSupported);
 
-  if (req.get_method() != RequestMethod::GET)
+  const auto method = req.get_method();
+  if (method != RequestMethod::GET && method != RequestMethod::HEAD)
     return r.set_status(HTTPStatus::MethodNotAllowed)
-        .set_header("Allow", "GET");
+        .set_header("Allow", "GET, HEAD");
+
+  const bool is_head = method == RequestMethod::HEAD;
 
   auto file = find_file(root_, req.get_path());
-  if (!file) {
-    return r.set_status(HTTPStatus::NotFound)
-        .set_header("Content-Type", "text/html; charset=utf-8")
-        .set_body("<html><body><h1>404 Not Found</h1></body></html>");
+  if (!file)
+    return make_404(is_head);
+
+  if (is_head) {
+    std::error_code ec;
+    auto size = fs::file_size(*file, ec);
+    return r.set_status(HTTPStatus::OK)
+        .set_header("Content-Type", std::string(content_type_for(*file)))
+        .set_header("Content-Length", ec ? "0" : std::to_string(size))
+        .suppress_body();
   }
 
   auto body = read_file(*file);
-  if (!body) {
-    return r.set_status(HTTPStatus::NotFound)
-        .set_header("Content-Type", "text/html; charset=utf-8")
-        .set_body("<html><body><h1>404 Not Found</h1></body></html>");
-  }
+  if (!body)
+    return make_500();
 
   return r.set_status(HTTPStatus::OK)
       .set_header("Content-Type", std::string(content_type_for(*file)))

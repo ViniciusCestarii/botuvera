@@ -47,6 +47,8 @@ std::string_view status_to_reason_sv(HTTPStatus s) {
     return "Not Found";
   case HTTPStatus::MethodNotAllowed:
     return "Method Not Allowed";
+  case HTTPStatus::InternalServerError:
+    return "Internal Server Error";
   case HTTPStatus::VersionNotSupported:
     return "HTTP Version Not Supported";
   }
@@ -141,5 +143,5 @@ std::string HTTPResponse::to_network_string() const {
     header_lines += key + ": " + value + "\r\n";
   }
 
-  return status_line + header_lines + "\r\n" + body_;
+  return status_line + header_lines + "\r\n" + (omit_body_ ? "" : body_);
 }
