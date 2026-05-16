@@ -71,7 +71,7 @@ std::optional<Config> parse_config(int argc, char **argv) {
       continue;
     }
 
-    if (a == "-p-tls" || a == "--port-tls") {
+    if (a == "-tls-p" || a == "--tls-port") {
       if (i + 1 >= argc) {
         std::cerr << "missing value for " << a << "\n";
         return std::nullopt;
