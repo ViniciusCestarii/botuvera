@@ -37,7 +37,8 @@ void TCPSocket::bind(const std::string &host, std::uint16_t port) {
   addr.sin_port = htons(port);
 
   if (::inet_pton(AF_INET, host.c_str(), &addr.sin_addr) != 1)
-    throw std::system_error(errno, std::generic_category(), "invalid host: " + host);
+    throw std::system_error(errno, std::generic_category(),
+                            "invalid host: " + host);
 
   if (::bind(fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == -1)
     throw std::system_error(errno, std::generic_category(), "bind");
@@ -76,4 +77,10 @@ ssize_t TCPSocket::recv(void *buffer, size_t size) {
   if (n == -1)
     throw std::system_error(errno, std::generic_category(), "recv");
   return n;
+}
+
+int TCPSocket::release() {
+  int fd = fd_;
+  fd_ = -1;
+  return fd;
 }

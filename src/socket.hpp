@@ -1,12 +1,11 @@
 #pragma once
 
-#include <cstddef>
+#include "connection.hpp"
+
 #include <cstdint>
 #include <netinet/in.h>
 #include <string>
-#include <string_view>
-
-class TCPSocket {
+class TCPSocket: public Connection {
 public:
   TCPSocket();
   explicit TCPSocket(int fd);
@@ -22,9 +21,10 @@ public:
   void reuse_address();
   void bind(const std::string &host, uint16_t port);
   void listen(int backlog = 5);
+  void send(std::string_view data) override;
+  ssize_t recv(void *buffer, size_t size) override;
   TCPSocket accept(sockaddr_in &client);
-  void send(std::string_view data);
-  ssize_t recv(void *buffer, size_t size);
+  int release();
 
 private:
   int fd_;

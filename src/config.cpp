@@ -18,7 +18,10 @@ void print_usage(std::string_view prog) {
             << "\n"
             << "  <root-dir>               directory to serve\n"
             << "  -p, --port <port>        port to listen on (default: " << DEFAULT_PORT << ")\n"
+            << "  -tls-p --tls-port <port> port to listen on TLS connection (default: " << DEFAULT_TLS_PORT << ")\n"
             << "      --host <host>        host to bind to (default: " << DEFAULT_HOST << ")\n"
+            << "      --cert <path>        path to cert.pem (optional)\n"
+            << "      --key <path>         path to key.pem (optional)\n"
             << "  -h, --help               show this help and exit\n"
             << "  --version                show version and exit\n";
 }
@@ -65,6 +68,51 @@ std::optional<Config> parse_config(int argc, char **argv) {
         return std::nullopt;
       }
       cfg.port = static_cast<uint16_t>(val);
+      continue;
+    }
+
+    if (a == "-p-tls" || a == "--port-tls") {
+      if (i + 1 >= argc) {
+        std::cerr << "missing value for " << a << "\n";
+        return std::nullopt;
+      }
+      char *end;
+      long val = std::strtol(argv[++i], &end, 10);
+      if (*end != '\0' || val <= 0 || val > 65535) {
+        std::cerr << "invalid port: " << argv[i] << "\n";
+        return std::nullopt;
+      }
+      cfg.tls_port = static_cast<uint16_t>(val);
+      continue;
+    }
+
+    if (a == "--cert") {
+      if (i + 1 >= argc) {
+        std::cerr << "missing value for " << a << "\n";
+        return std::nullopt;
+      }
+      std::error_code ec;
+      auto p = fs::canonical(argv[++i], ec);
+      if (ec || !fs::is_regular_file(p)) {
+        std::cerr << "invalid cert file: " << argv[i] << "\n";
+        return std::nullopt;
+      }
+      cfg.cert_path = std::move(p);
+      continue;
+    }
+
+    if (a == "--key") {
+      if (i + 1 >= argc) {
+        std::cerr << "missing value for " << a << "\n";
+        return std::nullopt;
+      }
+      std::error_code ec;
+      auto p = fs::canonical(argv[++i], ec);
+      if (ec || !fs::is_regular_file(p)) {
+        std::cerr << "invalid key file: " << argv[i] << "\n";
+        return std::nullopt;
+      }
+      cfg.key_path = std::move(p);
       continue;
     }
 
