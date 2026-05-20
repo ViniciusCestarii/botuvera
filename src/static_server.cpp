@@ -25,6 +25,8 @@ std::string_view content_type_for(const fs::path &p) {
     return "application/json; charset=utf-8";
   if (ext == ".txt")
     return "text/plain; charset=utf-8";
+  if (ext == ".xml")
+    return "application/xml; charset=utf-8";
   if (ext == ".png")
     return "image/png";
   if (ext == ".jpg" || ext == ".jpeg")
