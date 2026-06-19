@@ -52,3 +52,7 @@ Simple Web server.
 # HTTP + HTTPS
 ./build/botuvera --cert cert.pem --key key.pem /var/www/html
 ```
+
+## Why "botuvera"?
+
+While navigating through Google Maps in Brazil, I randomly stumbled upon Botuverá, a small rural city in Brazil. I liked the name, so that's it.
