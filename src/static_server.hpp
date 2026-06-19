@@ -15,6 +15,7 @@ private:
   struct CachedFile {
     std::string body;
     std::string content_type;
+    std::string etag;
   };
 
   std::filesystem::path root_;

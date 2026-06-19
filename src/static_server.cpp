@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -42,6 +44,13 @@ std::string content_type_for(const fs::path &p) {
   return "application/octet-stream";
 }
 
+std::string make_etag(std::string_view body) {
+  auto hash = std::hash<std::string_view>{}(body);
+  char buf[2 + 16 + 1];
+  std::snprintf(buf, sizeof(buf), "\"%016zx\"", hash);
+  return buf;
+}
+
 HTTPResponse make_404(bool suppress) {
   HTTPResponse r;
   r.set_status(HTTPStatus::NotFound)
@@ -77,7 +86,9 @@ StaticFileServer::StaticFileServer(fs::path root) : root_(std::move(root)) {
       continue;
 
     auto key = rel.generic_string();
-    cache_[key] = {std::move(body), content_type_for(entry.path())};
+    auto etag = make_etag(body);
+    cache_[key] = {std::move(body), content_type_for(entry.path()),
+                   std::move(etag)};
   }
   std::cout << "Cached " << cache_.size() << " file(s) from " << root_ << "\n";
 }
@@ -118,6 +129,13 @@ HTTPResponse StaticFileServer::serve(const HTTPRequest &req) const {
   const auto *cached = lookup(req.get_path());
   if (!cached)
     return make_404(is_head);
+
+  // no-cache tells the browser it may store the response but must revalidate
+  // with the ETag before reusing it, so updated files are picked up.
+  r.set_header("ETag", cached->etag).set_header("Cache-Control", "no-cache");
+
+  if (req.get_if_none_match() == cached->etag)
+    return r.set_status(HTTPStatus::NotModified).suppress_body();
 
   r.set_status(HTTPStatus::OK).set_header("Content-Type", cached->content_type);
   if (is_head)

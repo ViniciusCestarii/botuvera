@@ -43,6 +43,8 @@ std::string_view status_to_reason_sv(HTTPStatus s) {
   switch (s) {
   case HTTPStatus::OK:
     return "OK";
+  case HTTPStatus::NotModified:
+    return "Not Modified";
   case HTTPStatus::NotFound:
     return "Not Found";
   case HTTPStatus::MethodNotAllowed:
@@ -106,6 +108,8 @@ void HTTPRequest::parse_header(std::string_view line) {
     connection_ = std::string(value);
     std::transform(connection_.begin(), connection_.end(), connection_.begin(),
                    [](unsigned char c) { return std::tolower(c); });
+  } else if (key == "If-None-Match") {
+    if_none_match_ = std::string(value);
   }
 }
 

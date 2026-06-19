@@ -14,6 +14,7 @@ public:
 
   std::string_view get_path() const { return path_; }
   std::string_view get_host() const { return host_; }
+  std::string_view get_if_none_match() const { return if_none_match_; }
   RequestMethod get_method() const { return method_; }
   HTTPVersion get_version() const { return version_; }
   bool wants_keep_alive() const;
@@ -24,6 +25,7 @@ private:
   std::string path_;
   std::string host_;
   std::string connection_;
+  std::string if_none_match_;
 
   void parse_request_line(std::string_view line);
   void parse_header(std::string_view line);
@@ -36,6 +38,7 @@ std::ostream &operator<<(std::ostream &os, const HTTPRequest &req);
 
 enum class HTTPStatus : uint16_t {
   OK = 200,
+  NotModified = 304,
   NotFound = 404,
   MethodNotAllowed = 405,
   InternalServerError = 500,
