@@ -2,6 +2,7 @@
 
 #include <arpa/inet.h>
 #include <cstdint>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <stdlib.h>
 #include <sys/socket.h>
@@ -22,6 +23,14 @@ TCPSocket::TCPSocket(TCPSocket &&other) noexcept : fd_(other.fd_) {
 TCPSocket::~TCPSocket() {
   if (fd_ != -1)
     ::close(fd_);
+}
+
+void TCPSocket::set_nonblocking() {
+  int flags = fcntl(fd_, F_GETFL, 0);
+  if (flags == -1)
+    throw std::system_error(errno, std::generic_category(), "fcntl F_GETFL");
+  if (fcntl(fd_, F_SETFL, flags | O_NONBLOCK) == -1)
+    throw std::system_error(errno, std::generic_category(), "fcntl F_SETFL");
 }
 
 void TCPSocket::reuse_address() {

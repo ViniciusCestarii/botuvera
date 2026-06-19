@@ -100,8 +100,21 @@ void HTTPRequest::parse_header(std::string_view line) {
     return;
   auto key = line.substr(0, colon);
   auto value = line.substr(colon + 2);
-  if (key == "Host")
+  if (key == "Host") {
     host_ = std::string(value);
+  } else if (key == "Connection") {
+    connection_ = std::string(value);
+    std::transform(connection_.begin(), connection_.end(), connection_.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+  }
+}
+
+bool HTTPRequest::wants_keep_alive() const {
+  if (connection_ == "close")
+    return false;
+  if (version_ == HTTPVersion::HTTP_1_1)
+    return true;
+  return connection_ == "keep-alive";
 }
 
 RequestMethod HTTPRequest::parse_method(std::string_view s) {

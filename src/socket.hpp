@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <netinet/in.h>
+#include <sys/socket.h>
 #include <string>
 class TCPSocket: public Connection {
 public:
@@ -19,11 +20,13 @@ public:
   ~TCPSocket();
 
   void reuse_address();
+  void set_nonblocking();
   void bind(const std::string &host, uint16_t port);
-  void listen(int backlog = 5);
+  void listen(int backlog = SOMAXCONN);
   void send(std::string_view data) override;
   ssize_t recv(void *buffer, size_t size) override;
   TCPSocket accept(sockaddr_in &client);
+  int fd() const { return fd_; }
   int release();
 
 private:

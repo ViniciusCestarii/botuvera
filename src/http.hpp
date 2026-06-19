@@ -16,12 +16,14 @@ public:
   std::string_view get_host() const { return host_; }
   RequestMethod get_method() const { return method_; }
   HTTPVersion get_version() const { return version_; }
+  bool wants_keep_alive() const;
 
 private:
   RequestMethod method_ = RequestMethod::UNKNOWN;
   HTTPVersion version_ = HTTPVersion::UNKNOWN;
   std::string path_;
   std::string host_;
+  std::string connection_;
 
   void parse_request_line(std::string_view line);
   void parse_header(std::string_view line);
