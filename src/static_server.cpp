@@ -8,6 +8,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <sys/types.h>
 
 namespace fs = std::filesystem;
 
@@ -44,6 +45,10 @@ std::string content_type_for(const fs::path &p) {
   return "application/octet-stream";
 }
 
+std::string cache_control_for(uint max_age) {
+  return max_age == 0 ? "no-cache" : "max-age=" + std::to_string(max_age);
+}
+
 std::string make_etag(std::string_view body) {
   auto hash = std::hash<std::string_view>{}(body);
   char buf[2 + 16 + 1];
@@ -63,7 +68,10 @@ HTTPResponse make_404(bool suppress) {
 
 } // namespace
 
-StaticFileServer::StaticFileServer(fs::path root) : root_(std::move(root)) {
+StaticFileServer::StaticFileServer(fs::path root, uint max_age,
+                                   uint html_max_age)
+    : root_(std::move(root)), cache_control_(cache_control_for(max_age)),
+      cache_control_html_(cache_control_for(html_max_age)) {
   std::error_code ec;
   for (const auto &entry :
        fs::recursive_directory_iterator(root_, ec)) {
@@ -130,9 +138,10 @@ HTTPResponse StaticFileServer::serve(const HTTPRequest &req) const {
   if (!cached)
     return make_404(is_head);
 
-  // no-cache tells the browser it may store the response but must revalidate
-  // with the ETag before reusing it, so updated files are picked up.
-  r.set_header("ETag", cached->etag).set_header("Cache-Control", "no-cache");
+  const bool is_html = cached->content_type.rfind("text/html", 0) == 0;
+  r.set_header("ETag", cached->etag)
+      .set_header("Cache-Control",
+                  is_html ? cache_control_html_ : cache_control_);
 
   if (req.get_if_none_match() == cached->etag)
     return r.set_status(HTTPStatus::NotModified).suppress_body();
