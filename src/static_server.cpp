@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
-#include <optional>
+#include <iostream>
 #include <string>
 #include <string_view>
 
@@ -11,7 +11,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-std::string_view content_type_for(const fs::path &p) {
+std::string content_type_for(const fs::path &p) {
   auto ext = p.extension().string();
   std::transform(ext.begin(), ext.end(), ext.begin(),
                  [](unsigned char c) { return std::tolower(c); });
@@ -42,57 +42,6 @@ std::string_view content_type_for(const fs::path &p) {
   return "application/octet-stream";
 }
 
-std::optional<fs::path> resolve_under(const fs::path &root,
-                                      const fs::path &candidate) {
-  std::error_code ec;
-  auto canon = fs::weakly_canonical(candidate, ec);
-  if (ec)
-    return std::nullopt;
-  if (!fs::is_regular_file(canon, ec))
-    return std::nullopt;
-
-  auto root_s = root.string();
-  auto canon_s = canon.string();
-  if (canon_s != root_s &&
-      (canon_s.size() <= root_s.size() ||
-       canon_s.compare(0, root_s.size(), root_s) != 0 ||
-       canon_s[root_s.size()] != fs::path::preferred_separator)) {
-    return std::nullopt;
-  }
-  return canon;
-}
-
-std::optional<fs::path> find_file(const fs::path &root,
-                                  std::string_view url_path) {
-  if (auto q = url_path.find('?'); q != std::string_view::npos)
-    url_path = url_path.substr(0, q);
-  while (!url_path.empty() && url_path.front() == '/')
-    url_path.remove_prefix(1);
-
-  fs::path base = url_path.empty() ? root : root / std::string(url_path);
-
-  for (const fs::path &c :
-       {base, fs::path(base.string() + ".html"), base / "index.html"}) {
-    if (auto r = resolve_under(root, c))
-      return r;
-  }
-  return std::nullopt;
-}
-
-std::optional<std::string> read_file(const fs::path &p) {
-  std::ifstream f(p, std::ios::binary | std::ios::ate);
-  if (!f)
-    return std::nullopt;
-  auto size = f.tellg();
-  if (size < 0)
-    return std::nullopt;
-  std::string out(static_cast<size_t>(size), '\0');
-  f.seekg(0);
-  if (!f.read(out.data(), size))
-    return std::nullopt;
-  return out;
-}
-
 HTTPResponse make_404(bool suppress) {
   HTTPResponse r;
   r.set_status(HTTPStatus::NotFound)
@@ -103,16 +52,55 @@ HTTPResponse make_404(bool suppress) {
   return r;
 }
 
-HTTPResponse make_500() {
-  HTTPResponse r;
-  return r.set_status(HTTPStatus::InternalServerError)
-      .set_header("Content-Type", "text/html; charset=utf-8")
-      .set_body("<html><body><h1>500 Internal Server Error</h1></body></html>");
-}
-
 } // namespace
 
-StaticFileServer::StaticFileServer(fs::path root) : root_(std::move(root)) {}
+StaticFileServer::StaticFileServer(fs::path root) : root_(std::move(root)) {
+  std::error_code ec;
+  for (const auto &entry :
+       fs::recursive_directory_iterator(root_, ec)) {
+    if (!entry.is_regular_file())
+      continue;
+
+    auto rel = fs::relative(entry.path(), root_, ec);
+    if (ec)
+      continue;
+
+    std::ifstream f(entry.path(), std::ios::binary | std::ios::ate);
+    if (!f)
+      continue;
+    auto size = f.tellg();
+    if (size < 0)
+      continue;
+    std::string body(static_cast<size_t>(size), '\0');
+    f.seekg(0);
+    if (!f.read(body.data(), size))
+      continue;
+
+    auto key = rel.generic_string();
+    cache_[key] = {std::move(body), content_type_for(entry.path())};
+  }
+  std::cout << "Cached " << cache_.size() << " file(s) from " << root_ << "\n";
+}
+
+const StaticFileServer::CachedFile *
+StaticFileServer::lookup(std::string_view url_path) const {
+  if (auto q = url_path.find('?'); q != std::string_view::npos)
+    url_path = url_path.substr(0, q);
+  while (!url_path.empty() && url_path.front() == '/')
+    url_path.remove_prefix(1);
+  while (!url_path.empty() && url_path.back() == '/')
+    url_path.remove_suffix(1);
+
+  std::string key(url_path);
+  for (const auto &candidate :
+       {key, key + ".html",
+        key.empty() ? std::string("index.html") : key + "/index.html"}) {
+    auto it = cache_.find(candidate);
+    if (it != cache_.end())
+      return &it->second;
+  }
+  return nullptr;
+}
 
 HTTPResponse StaticFileServer::serve(const HTTPRequest &req) const {
   HTTPResponse r;
@@ -127,24 +115,15 @@ HTTPResponse StaticFileServer::serve(const HTTPRequest &req) const {
 
   const bool is_head = method == RequestMethod::HEAD;
 
-  auto file = find_file(root_, req.get_path());
-  if (!file)
+  const auto *cached = lookup(req.get_path());
+  if (!cached)
     return make_404(is_head);
 
-  if (is_head) {
-    std::error_code ec;
-    auto size = fs::file_size(*file, ec);
-    return r.set_status(HTTPStatus::OK)
-        .set_header("Content-Type", std::string(content_type_for(*file)))
-        .set_header("Content-Length", ec ? "0" : std::to_string(size))
+  r.set_status(HTTPStatus::OK).set_header("Content-Type", cached->content_type);
+  if (is_head)
+    return r.set_header("Content-Length",
+                        std::to_string(cached->body.size()))
         .suppress_body();
-  }
 
-  auto body = read_file(*file);
-  if (!body)
-    return make_500();
-
-  return r.set_status(HTTPStatus::OK)
-      .set_header("Content-Type", std::string(content_type_for(*file)))
-      .set_body(std::move(*body));
+  return r.set_body(cached->body);
 }
