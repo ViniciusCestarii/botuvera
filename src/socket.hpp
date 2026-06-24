@@ -25,6 +25,10 @@ public:
   void listen(int backlog = SOMAXCONN);
   void send(std::string_view data) override;
   ssize_t recv(void *buffer, size_t size) override;
+
+  IOResult poll_recv(void *buf, size_t size, ssize_t &out);
+  IOResult poll_send(const char *&p, size_t &remaining);
+
   TCPSocket accept(sockaddr_in &client);
   int fd() const { return fd_; }
   int release();

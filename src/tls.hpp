@@ -7,15 +7,18 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 
-enum class TLSPoll { Done, WantRead, WantWrite, Error };
-
 class TLSConnection : public Connection {
 public:
   TLSConnection(int fd, SSL_CTX *ctx);
 
-  TLSPoll poll_handshake();
-  TLSPoll poll_recv(void *buf, size_t size, ssize_t &out);
-  TLSPoll poll_send(const char *&p, size_t &remaining);
+  TLSConnection(TLSConnection &&other) noexcept;
+  TLSConnection &operator=(TLSConnection &&other) noexcept;
+  TLSConnection(const TLSConnection &) = delete;
+  TLSConnection &operator=(const TLSConnection &) = delete;
+
+  IOResult poll_handshake();
+  IOResult poll_recv(void *buf, size_t size, ssize_t &out);
+  IOResult poll_send(const char *&p, size_t &remaining);
 
   int fd() const { return fd_; }
 

@@ -1,6 +1,7 @@
 #include "socket.hpp"
 
 #include <arpa/inet.h>
+#include <cerrno>
 #include <cstdint>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -86,6 +87,32 @@ ssize_t TCPSocket::recv(void *buffer, size_t size) {
   if (n == -1)
     throw std::system_error(errno, std::generic_category(), "recv");
   return n;
+}
+
+IOResult TCPSocket::poll_recv(void *buf, size_t size, ssize_t &out) {
+  ssize_t n = ::recv(fd_, buf, size, 0);
+  if (n > 0) {
+    out = n;
+    return IOResult::Done;
+  }
+  out = 0;
+  if (n == 0)
+    return IOResult::Error; // peer closed
+  if (errno == EAGAIN || errno == EWOULDBLOCK)
+    return IOResult::WantRead;
+  return IOResult::Error;
+}
+
+IOResult TCPSocket::poll_send(const char *&p, size_t &remaining) {
+  ssize_t w = ::send(fd_, p, remaining, 0);
+  if (w > 0) {
+    p += w;
+    remaining -= w;
+    return IOResult::Done;
+  }
+  if (errno == EAGAIN || errno == EWOULDBLOCK)
+    return IOResult::WantWrite;
+  return IOResult::Error;
 }
 
 int TCPSocket::release() {

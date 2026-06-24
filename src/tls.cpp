@@ -42,46 +42,68 @@ TLSConnection::TLSConnection(int fd, SSL_CTX *ctx) : fd_(fd), ssl_(SSL_new(ctx))
   SSL_set_fd(ssl_, fd_);
 }
 
-TLSPoll TLSConnection::poll_handshake() {
-  int ret = SSL_accept(ssl_);
-  if (ret == 1)
-    return TLSPoll::Done;
-  int err = SSL_get_error(ssl_, ret);
-  if (err == SSL_ERROR_WANT_READ)
-    return TLSPoll::WantRead;
-  if (err == SSL_ERROR_WANT_WRITE)
-    return TLSPoll::WantWrite;
-  return TLSPoll::Error;
+TLSConnection::TLSConnection(TLSConnection &&other) noexcept
+    : ssl_(other.ssl_), fd_(other.fd_) {
+  other.ssl_ = nullptr;
+  other.fd_ = -1;
 }
 
-TLSPoll TLSConnection::poll_recv(void *buf, size_t size, ssize_t &out) {
+TLSConnection &TLSConnection::operator=(TLSConnection &&other) noexcept {
+  if (this != &other) {
+    if (ssl_) {
+      SSL_shutdown(ssl_);
+      SSL_free(ssl_);
+    }
+    if (fd_ != -1)
+      close(fd_);
+    ssl_ = other.ssl_;
+    fd_ = other.fd_;
+    other.ssl_ = nullptr;
+    other.fd_ = -1;
+  }
+  return *this;
+}
+
+IOResult TLSConnection::poll_handshake() {
+  int ret = SSL_accept(ssl_);
+  if (ret == 1)
+    return IOResult::Done;
+  int err = SSL_get_error(ssl_, ret);
+  if (err == SSL_ERROR_WANT_READ)
+    return IOResult::WantRead;
+  if (err == SSL_ERROR_WANT_WRITE)
+    return IOResult::WantWrite;
+  return IOResult::Error;
+}
+
+IOResult TLSConnection::poll_recv(void *buf, size_t size, ssize_t &out) {
   int n = SSL_read(ssl_, buf, static_cast<int>(size));
   if (n > 0) {
     out = n;
-    return TLSPoll::Done;
+    return IOResult::Done;
   }
   out = 0;
   int err = SSL_get_error(ssl_, n);
   if (err == SSL_ERROR_WANT_READ)
-    return TLSPoll::WantRead;
+    return IOResult::WantRead;
   if (err == SSL_ERROR_WANT_WRITE)
-    return TLSPoll::WantWrite;
-  return TLSPoll::Error;
+    return IOResult::WantWrite;
+  return IOResult::Error;
 }
 
-TLSPoll TLSConnection::poll_send(const char *&p, size_t &remaining) {
+IOResult TLSConnection::poll_send(const char *&p, size_t &remaining) {
   int w = SSL_write(ssl_, p, static_cast<int>(remaining));
   if (w > 0) {
     p += w;
     remaining -= w;
-    return TLSPoll::Done;
+    return IOResult::Done;
   }
   int err = SSL_get_error(ssl_, w);
   if (err == SSL_ERROR_WANT_WRITE)
-    return TLSPoll::WantWrite;
+    return IOResult::WantWrite;
   if (err == SSL_ERROR_WANT_READ)
-    return TLSPoll::WantRead;
-  return TLSPoll::Error;
+    return IOResult::WantRead;
+  return IOResult::Error;
 }
 
 void TLSConnection::send(std::string_view data) {
@@ -108,7 +130,10 @@ ssize_t TLSConnection::recv(void *buffer, size_t size) {
 }
 
 TLSConnection::~TLSConnection() {
-  SSL_shutdown(ssl_);
-  SSL_free(ssl_);
-  close(fd_);
+  if (ssl_) {
+    SSL_shutdown(ssl_);
+    SSL_free(ssl_);
+  }
+  if (fd_ != -1)
+    close(fd_);
 }
