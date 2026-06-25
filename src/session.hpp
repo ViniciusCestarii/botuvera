@@ -10,7 +10,6 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
-#include <iostream>
 #include <netinet/in.h>
 #include <string>
 #include <string_view>
@@ -32,7 +31,6 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
   while (!close_conn) {
     if (auto end = buf.find("\r\n\r\n"); end != std::string::npos) {
       HTTPRequest req(std::string_view(buf.data(), end + 4));
-      std::cout << req;
       bool keep_alive = req.wants_keep_alive();
       auto resp = fs.serve(req);
       if (req.get_version() != HTTPVersion::UNKNOWN)
@@ -114,12 +112,9 @@ template <class Start> Task accept_loop(int server_fd, Start start) {
         co_await ReadReady{server_fd};
         continue;
       }
-      std::cerr << "accept: " << strerror(errno) << "\n";
       break;
     }
     set_nonblocking(client_fd);
-    std::cout << "Connection from " << inet_ntoa(client.sin_addr) << ":"
-              << ntohs(client.sin_port) << "\n";
     start(client_fd);
   }
 }
