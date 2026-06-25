@@ -60,8 +60,9 @@ public:
     headers_[std::move(key)] = std::move(value);
     return *this;
   };
-  HTTPResponse &set_body(std::string body) {
-    body_ = std::move(body);
+  // body_ is a string_view: the referenced data must outlive this response
+  HTTPResponse &set_body(std::string_view body) {
+    body_ = body;
     set_header("Content-Length", std::to_string(body_.size()));
     return *this;
   };
@@ -76,6 +77,6 @@ private:
   HTTPVersion version_ = HTTPVersion::HTTP_1_0;
   HTTPStatus status_ = HTTPStatus::OK;
   std::unordered_map<std::string, std::string> headers_;
-  std::string body_;
+  std::string_view body_;
   bool omit_body_ = false;
 };

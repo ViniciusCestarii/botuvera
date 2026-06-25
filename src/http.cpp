@@ -151,14 +151,28 @@ HTTPResponse::HTTPResponse()
       } {}
 
 std::string HTTPResponse::to_network_string() const {
-  std::string status_line = std::string(version_to_sv(version_)) + " " +
-                            std::to_string(static_cast<int>(status_)) + " " +
-                            std::string(status_to_reason_sv(status_)) + "\r\n";
+  std::string result;
+  result.reserve(256 + (omit_body_ ? 0 : body_.size()));  // rough guess
 
-  std::string header_lines;
+  // status line
+  result += version_to_sv(version_);
+  result += " ";
+  result += std::to_string(static_cast<int>(status_));
+  result += " ";
+  result += std::string(status_to_reason_sv(status_));
+  result += "\r\n";
+
+  // headers
   for (const auto &[key, value] : headers_) {
-    header_lines += key + ": " + value + "\r\n";
+    result += key + ": " + value + "\r\n";
   }
 
-  return status_line + header_lines + "\r\n" + (omit_body_ ? "" : body_);
+  result += "\r\n";
+
+  // body
+  if (!omit_body_) {
+    result += body_;
+  }
+
+  return result;
 }
