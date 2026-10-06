@@ -14,15 +14,15 @@ int main(int argc, char **argv) {
   if (!cfg)
     return 1;
 
-  StaticFileServer file_server(cfg->root, cfg->max_age, cfg->html_max_age);
-
-  std::optional<TLSServer> tls_server;
-  if (cfg->cert_path && cfg->key_path) {
-    tls_server.emplace();
-    tls_server->configure_ctx(*cfg->cert_path, *cfg->key_path);
-  }
-
   try {
+    StaticFileServer file_server(cfg->root, cfg->max_age, cfg->html_max_age);
+
+    std::optional<TLSServer> tls_server;
+    if (cfg->cert_path && cfg->key_path) {
+      tls_server.emplace();
+      tls_server->configure_ctx(*cfg->cert_path, *cfg->key_path);
+    }
+
     auto &loop = EventLoop::instance();
 
     TCPSocket listener;

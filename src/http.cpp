@@ -1,5 +1,6 @@
 #include "http.hpp"
 #include "version.hpp"
+#include <charconv>
 #include <ostream>
 #include <stdexcept>
 #include <string_view>
@@ -45,6 +46,8 @@ std::string_view status_to_reason_sv(HTTPStatus s) {
     return "OK";
   case HTTPStatus::NotModified:
     return "Not Modified";
+  case HTTPStatus::BadRequest:
+    return "Bad Request";
   case HTTPStatus::NotFound:
     return "Not Found";
   case HTTPStatus::MethodNotAllowed:
@@ -90,7 +93,11 @@ HTTPRequest::HTTPRequest(std::string_view data) {
 
 void HTTPRequest::parse_request_line(std::string_view line) {
   auto method_end = line.find(' ');
+  if (method_end == std::string_view::npos)
+    throw std::runtime_error("Malformed request line");
   auto path_end = line.find(' ', method_end + 1);
+  if (path_end == std::string_view::npos)
+    throw std::runtime_error("Malformed request line");
   method_ = parse_method(line.substr(0, method_end));
   path_ = line.substr(method_end + 1, path_end - method_end - 1);
   version_ = parse_version(line.substr(path_end + 1));
@@ -101,7 +108,10 @@ void HTTPRequest::parse_header(std::string_view line) {
   if (colon == std::string_view::npos)
     return;
   auto key = line.substr(0, colon);
-  auto value = line.substr(colon + 2);
+  auto value_start = colon + 1;
+  if (value_start < line.size() && line[value_start] == ' ')
+    ++value_start;
+  auto value = line.substr(value_start);
   if (key == "Host") {
     host_ = std::string(value);
   } else if (key == "Connection") {
@@ -110,6 +120,11 @@ void HTTPRequest::parse_header(std::string_view line) {
                    [](unsigned char c) { return std::tolower(c); });
   } else if (key == "If-None-Match") {
     if_none_match_ = std::string(value);
+  } else if (key == "Content-Length") {
+    size_t len = 0;
+    auto res = std::from_chars(value.data(), value.data() + value.size(), len);
+    if (res.ec == std::errc())
+      content_length_ = len;
   }
 }
 

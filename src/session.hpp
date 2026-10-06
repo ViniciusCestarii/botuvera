@@ -11,6 +11,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <sys/socket.h>
@@ -30,35 +31,55 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
 
   while (!close_conn) {
     if (auto end = buf.find("\r\n\r\n"); end != std::string::npos) {
-      HTTPRequest req(std::string_view(buf.data(), end + 4));
-      bool keep_alive = req.wants_keep_alive();
-      auto resp = fs.serve(req);
-      if (req.get_version() != HTTPVersion::UNKNOWN)
-        resp.set_version(req.get_version());
-      resp.set_header("Connection", keep_alive ? "keep-alive" : "close");
-      auto resp_str = resp.to_network_string();
-      const char *p = resp_str.data();
-      size_t remaining = resp_str.size();
-      bool send_err = false;
-      while (remaining > 0) {
-        auto r = conn.poll_send(p, remaining);
-        if (r == IOResult::WantWrite)
-          co_await WriteReady{fd};
-        else if (r == IOResult::WantRead)
-          co_await ReadReady{fd};
-        else if (r == IOResult::Error) {
-          send_err = true;
-          break;
-        }
+      std::optional<HTTPRequest> req;
+      bool bad_request = false;
+      try {
+        req.emplace(std::string_view(buf.data(), end + 4));
+      } catch (const std::exception &) {
+        bad_request = true;
       }
-      if (send_err || !keep_alive)
-        close_conn = true;
-      else
-        buf = buf.substr(end + 4);
-      continue;
-    }
 
-    if (buf.size() > 8192) {
+      size_t total_len = bad_request ? end + 4 : end + 4 + req->get_content_length();
+
+      if (bad_request || buf.size() >= total_len) {
+        HTTPResponse resp;
+        bool keep_alive = false;
+        if (bad_request) {
+          resp.set_status(HTTPStatus::BadRequest);
+        } else {
+          keep_alive = req->wants_keep_alive();
+          resp = fs.serve(*req);
+          if (req->get_version() != HTTPVersion::UNKNOWN)
+            resp.set_version(req->get_version());
+        }
+        resp.set_header("Connection", keep_alive ? "keep-alive" : "close");
+        auto resp_str = resp.to_network_string();
+        const char *p = resp_str.data();
+        size_t remaining = resp_str.size();
+        bool send_err = false;
+        while (remaining > 0) {
+          auto r = conn.poll_send(p, remaining);
+          if (r == IOResult::WantWrite)
+            co_await WriteReady{fd};
+          else if (r == IOResult::WantRead)
+            co_await ReadReady{fd};
+          else if (r == IOResult::Error) {
+            send_err = true;
+            break;
+          }
+        }
+        if (send_err || !keep_alive)
+          close_conn = true;
+        else
+          buf = buf.substr(total_len);
+        continue;
+      }
+
+      if (total_len > 8192) {
+        close_conn = true;
+        continue;
+      }
+    } else if (buf.size() > 8192) {
       close_conn = true;
       continue;
     }
