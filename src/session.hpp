@@ -129,11 +129,15 @@ template <class Start> Task accept_loop(int server_fd, Start start) {
     int client_fd =
         ::accept(server_fd, reinterpret_cast<sockaddr *>(&client), &len);
     if (client_fd == -1) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
-        co_await ReadReady{server_fd};
-        continue;
-      }
-      break;
+      // The listener fd itself is broken; nothing further can be accepted.
+      if (errno == EBADF || errno == EINVAL || errno == ENOTSOCK)
+        break;
+      // Everything else (EAGAIN, fd exhaustion, a client that reset before
+      // accept() completed, a signal interrupt, ...) is transient: wait for
+      // the listener to be readable again and retry instead of shutting the
+      // acceptor down permanently.
+      co_await ReadReady{server_fd};
+      continue;
     }
     set_nonblocking(client_fd);
     start(client_fd);
