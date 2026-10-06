@@ -1,5 +1,6 @@
 #include "http.hpp"
 #include "version.hpp"
+#include <algorithm>
 #include <charconv>
 #include <ostream>
 #include <stdexcept>
