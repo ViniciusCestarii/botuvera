@@ -1,0 +1,13 @@
+name: test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev libgtest-dev
+      - run: cmake -B build
+      - run: cmake --build build -j $(nproc)
+      - run: ctest --test-dir build --output-on-failure
