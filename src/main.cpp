@@ -7,12 +7,16 @@
 
 #include <exception>
 #include <iostream>
+#include <csignal>
 #include <optional>
 
 int main(int argc, char **argv) {
   auto cfg = parse_config(argc, argv);
   if (!cfg)
     return 1;
+
+  // A write to a peer that already closed must fail with EPIPE, not kill the process.
+  std::signal(SIGPIPE, SIG_IGN);
 
   try {
     StaticFileServer file_server(cfg->root, cfg->max_age, cfg->html_max_age);

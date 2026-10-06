@@ -4,6 +4,7 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -168,4 +169,43 @@ TEST_F(SessionE2ETest, RequestBodyDoesNotLeakIntoNextPipelinedRequest) {
   auto after_first = response.find("\r\n", response.find(first));
   std::string second = status_line_at(response, after_first);
   EXPECT_EQ(second, "HTTP/1.1 200 OK") << "full response:\n" << response;
+}
+
+// Unlike the tests above, this one runs the real EventLoop with a
+// non-blocking socket, since the idle deadline lives in the loop.
+TEST_F(SessionE2ETest, ClosesSilentConnectionAfterIdleTimeout) {
+  uint16_t port = bound_port(listener_.fd());
+
+  int client_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+  ASSERT_GE(client_fd, 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(port);
+  ASSERT_EQ(::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr), 1);
+  ASSERT_EQ(::connect(client_fd, reinterpret_cast<sockaddr *>(&addr),
+                      sizeof(addr)),
+            0);
+
+  sockaddr_in client_addr{};
+  TCPSocket accepted = listener_.accept(client_addr);
+  accepted.set_nonblocking();
+  EventLoop::instance().set_idle_timeout(std::chrono::milliseconds(200));
+  auto start = std::chrono::steady_clock::now();
+  serve_connection(std::move(accepted), *file_server_);
+
+  // The client never sends anything; wait for the server to hang up.
+  bool closed = false;
+  char buf[16];
+  while (!closed &&
+         std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
+    ASSERT_TRUE(EventLoop::instance().run_once(10));
+    closed = ::recv(client_fd, buf, sizeof(buf), MSG_DONTWAIT) == 0;
+  }
+  auto elapsed = std::chrono::steady_clock::now() - start;
+  ::close(client_fd);
+  EventLoop::instance().set_idle_timeout(std::chrono::seconds(10));
+
+  EXPECT_TRUE(closed) << "server never closed the silent connection";
+  EXPECT_GE(elapsed, std::chrono::milliseconds(200))
+      << "server closed the connection before the idle timeout";
 }

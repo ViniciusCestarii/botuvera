@@ -136,7 +136,7 @@ template <class Start> Task accept_loop(int server_fd, Start start) {
       // accept() completed, a signal interrupt, ...) is transient: wait for
       // the listener to be readable again and retry instead of shutting the
       // acceptor down permanently.
-      co_await ReadReady{server_fd};
+      co_await ReadReady{server_fd, false};
       continue;
     }
     set_nonblocking(client_fd);
