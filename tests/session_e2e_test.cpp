@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <fstream>
 #include <gtest/gtest.h>
 #include <netinet/in.h>
@@ -86,6 +87,46 @@ protected:
       response.append(buf, n);
     ::close(client_fd);
     return response;
+  }
+
+  // Runs the real EventLoop, calling tick(client_fd) each iteration. Returns
+  // nullopt if the server didn't close the connection within 2s.
+  std::optional<std::chrono::milliseconds>
+  time_until_server_closes(const std::function<void(int)> &tick) {
+    uint16_t port = bound_port(listener_.fd());
+
+    int client_fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    EXPECT_GE(client_fd, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    EXPECT_EQ(::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr), 1);
+    EXPECT_EQ(::connect(client_fd, reinterpret_cast<sockaddr *>(&addr),
+                        sizeof(addr)),
+              0);
+
+    sockaddr_in client_addr{};
+    TCPSocket accepted = listener_.accept(client_addr);
+    accepted.set_nonblocking();
+    auto &loop = EventLoop::instance();
+    loop.set_timeout(std::chrono::milliseconds(200));
+    auto start = std::chrono::steady_clock::now();
+    serve_connection(std::move(accepted), *file_server_);
+
+    std::optional<std::chrono::milliseconds> closed_after;
+    char buf[16];
+    while (!closed_after &&
+           std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
+      tick(client_fd);
+      EXPECT_TRUE(loop.run_once(10));
+      ssize_t n = ::recv(client_fd, buf, sizeof(buf), MSG_DONTWAIT);
+      if (n == 0 || (n == -1 && errno != EAGAIN && errno != EWOULDBLOCK))
+        closed_after = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start);
+    }
+    ::close(client_fd);
+    loop.set_timeout(std::chrono::seconds(10));
+    return closed_after;
   }
 
   TempServeRoot root_;
@@ -171,41 +212,26 @@ TEST_F(SessionE2ETest, RequestBodyDoesNotLeakIntoNextPipelinedRequest) {
   EXPECT_EQ(second, "HTTP/1.1 200 OK") << "full response:\n" << response;
 }
 
-// Unlike the tests above, this one runs the real EventLoop with a
-// non-blocking socket, since the idle deadline lives in the loop.
-TEST_F(SessionE2ETest, ClosesSilentConnectionAfterIdleTimeout) {
-  uint16_t port = bound_port(listener_.fd());
+TEST_F(SessionE2ETest, ClosesSilentConnectionAfterTimeout) {
+  auto closed_after = time_until_server_closes([](int) {});
 
-  int client_fd = ::socket(AF_INET, SOCK_STREAM, 0);
-  ASSERT_GE(client_fd, 0);
-  sockaddr_in addr{};
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(port);
-  ASSERT_EQ(::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr), 1);
-  ASSERT_EQ(::connect(client_fd, reinterpret_cast<sockaddr *>(&addr),
-                      sizeof(addr)),
-            0);
+  ASSERT_TRUE(closed_after) << "server never closed the silent connection";
+  EXPECT_GE(*closed_after, std::chrono::milliseconds(200))
+      << "server closed the connection before the timeout";
+}
 
-  sockaddr_in client_addr{};
-  TCPSocket accepted = listener_.accept(client_addr);
-  accepted.set_nonblocking();
-  EventLoop::instance().set_idle_timeout(std::chrono::milliseconds(200));
-  auto start = std::chrono::steady_clock::now();
-  serve_connection(std::move(accepted), *file_server_);
+TEST_F(SessionE2ETest, ClosesTricklingConnectionAfterTimeout) {
+  auto last_send = std::chrono::steady_clock::time_point{};
+  auto closed_after = time_until_server_closes([&](int fd) {
+    auto now = std::chrono::steady_clock::now();
+    if (now - last_send < std::chrono::milliseconds(20))
+      return;
+    ::send(fd, "a", 1, MSG_NOSIGNAL);
+    last_send = now;
+  });
 
-  // The client never sends anything; wait for the server to hang up.
-  bool closed = false;
-  char buf[16];
-  while (!closed &&
-         std::chrono::steady_clock::now() - start < std::chrono::seconds(2)) {
-    ASSERT_TRUE(EventLoop::instance().run_once(10));
-    closed = ::recv(client_fd, buf, sizeof(buf), MSG_DONTWAIT) == 0;
-  }
-  auto elapsed = std::chrono::steady_clock::now() - start;
-  ::close(client_fd);
-  EventLoop::instance().set_idle_timeout(std::chrono::seconds(10));
-
-  EXPECT_TRUE(closed) << "server never closed the silent connection";
-  EXPECT_GE(elapsed, std::chrono::milliseconds(200))
-      << "server closed the connection before the idle timeout";
+  ASSERT_TRUE(closed_after)
+      << "a client sending a byte at a time kept the connection open";
+  EXPECT_GE(*closed_after, std::chrono::milliseconds(200))
+      << "server closed the connection before the timeout";
 }

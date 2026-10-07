@@ -29,6 +29,9 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
   char chunk[1024];
   bool close_conn = false;
 
+  auto &loop = EventLoop::instance();
+  loop.set_deadline(fd);
+
   while (!close_conn) {
     if (auto end = buf.find("\r\n\r\n"); end != std::string::npos) {
       std::optional<HTTPRequest> req;
@@ -58,6 +61,7 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
         size_t remaining = resp_str.size();
         bool send_err = false;
         while (remaining > 0) {
+          loop.set_deadline(fd);
           auto r = conn.poll_send(p, remaining);
           if (r == IOResult::WantWrite)
             co_await WriteReady{fd};
@@ -68,10 +72,12 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
             break;
           }
         }
-        if (send_err || !keep_alive)
+        if (send_err || !keep_alive) {
           close_conn = true;
-        else
+        } else {
           buf = buf.substr(total_len);
+          loop.set_deadline(fd);
+        }
         continue;
       }
 
@@ -96,7 +102,7 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
       close_conn = true;
   }
 
-  EventLoop::instance().remove(fd);
+  loop.remove(fd);
 }
 
 // TLS entry point: completes the handshake, then hands the connection off to
@@ -104,6 +110,7 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
 // step, so it lives here rather than leaking into the generic loop.
 inline Task serve_tls_connection(int fd, SSL_CTX *ctx, StaticFileServer &fs) {
   TLSConnection conn(fd, ctx);
+  EventLoop::instance().set_deadline(fd);
 
   for (auto r = conn.poll_handshake(); r != IOResult::Done;
        r = conn.poll_handshake()) {
@@ -136,7 +143,7 @@ template <class Start> Task accept_loop(int server_fd, Start start) {
       // accept() completed, a signal interrupt, ...) is transient: wait for
       // the listener to be readable again and retry instead of shutting the
       // acceptor down permanently.
-      co_await ReadReady{server_fd, false};
+      co_await ReadReady{server_fd};
       continue;
     }
     set_nonblocking(client_fd);

@@ -26,15 +26,13 @@ public:
         return loop;
     }
 
-    void watch_read(int fd, std::coroutine_handle<> h, bool timed) {
+    void watch_read(int fd, std::coroutine_handle<> h) {
         readers_[fd] = h;
-        set_deadline(fd, timed);
         arm(fd, EPOLLIN);
     }
 
-    void watch_write(int fd, std::coroutine_handle<> h, bool timed) {
+    void watch_write(int fd, std::coroutine_handle<> h) {
         writers_[fd] = h;
-        set_deadline(fd, timed);
         arm(fd, EPOLLOUT);
     }
 
@@ -45,8 +43,10 @@ public:
         deadlines_.erase(fd);
     }
 
-    void set_idle_timeout(std::chrono::milliseconds timeout) {
-        idle_timeout_ = timeout;
+    void set_timeout(std::chrono::milliseconds timeout) { timeout_ = timeout; }
+
+    void set_deadline(int fd) {
+        deadlines_[fd] = std::chrono::steady_clock::now() + timeout_;
     }
 
     void run() {
@@ -63,7 +63,6 @@ public:
         for (int i = 0; i < n; i++) {
             int fd = events[i].data.fd;
             uint32_t ev = events[i].events;
-            deadlines_.erase(fd);
             if (ev & (EPOLLIN | EPOLLHUP | EPOLLERR)) {
                 if (auto it = readers_.find(fd); it != readers_.end()) {
                     auto h = it->second;
@@ -79,7 +78,7 @@ public:
                 }
             }
         }
-        expire_idle();
+        expire_deadlines();
         return true;
     }
 
@@ -90,16 +89,9 @@ private:
     }
     ~EventLoop() { close(epfd_); }
 
-    void set_deadline(int fd, bool timed) {
-        if (timed)
-            deadlines_[fd] = std::chrono::steady_clock::now() + idle_timeout_;
-        else
-            deadlines_.erase(fd);
-    }
-
     // shutdown() makes the fd report EPOLLHUP, so the waiting coroutine
     // resumes, sees its read or write fail and closes the connection itself.
-    void expire_idle() {
+    void expire_deadlines() {
         auto now = std::chrono::steady_clock::now();
         for (auto it = deadlines_.begin(); it != deadlines_.end();) {
             if (it->second <= now) {
@@ -123,25 +115,23 @@ private:
     std::unordered_map<int, std::coroutine_handle<>> readers_;
     std::unordered_map<int, std::coroutine_handle<>> writers_;
     std::unordered_map<int, std::chrono::steady_clock::time_point> deadlines_;
-    std::chrono::milliseconds idle_timeout_{std::chrono::seconds(10)};
+    std::chrono::milliseconds timeout_{std::chrono::seconds(10)};
 };
 
 struct ReadReady {
     int fd;
-    bool timed = true;
     bool await_ready() const noexcept { return false; }
     void await_suspend(std::coroutine_handle<> h) const {
-        EventLoop::instance().watch_read(fd, h, timed);
+        EventLoop::instance().watch_read(fd, h);
     }
     void await_resume() const noexcept {}
 };
 
 struct WriteReady {
     int fd;
-    bool timed = true;
     bool await_ready() const noexcept { return false; }
     void await_suspend(std::coroutine_handle<> h) const {
-        EventLoop::instance().watch_write(fd, h, timed);
+        EventLoop::instance().watch_write(fd, h);
     }
     void await_resume() const noexcept {}
 };
