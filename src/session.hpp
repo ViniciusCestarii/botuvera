@@ -22,8 +22,14 @@ inline void set_nonblocking(int fd) {
   fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 }
 
+struct LoopRegistration {
+  int fd;
+  ~LoopRegistration() { EventLoop::instance().remove(fd); }
+};
+
 template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
   int fd = conn.fd();
+  LoopRegistration registration{fd};
 
   std::string buf;
   char chunk[1024];
@@ -101,8 +107,6 @@ template <class Conn> Task serve_connection(Conn conn, StaticFileServer &fs) {
     else
       close_conn = true;
   }
-
-  loop.remove(fd);
 }
 
 // TLS entry point: completes the handshake, then hands the connection off to
@@ -147,6 +151,10 @@ template <class Start> Task accept_loop(int server_fd, Start start) {
       continue;
     }
     set_nonblocking(client_fd);
-    start(client_fd);
+    try {
+      start(client_fd);
+    } catch (const std::exception &) {
+      // Drop this connection but keep accepting.
+    }
   }
 }

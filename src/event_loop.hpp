@@ -3,6 +3,8 @@
 #include <cerrno>
 #include <chrono>
 #include <coroutine>
+#include <exception>
+#include <iostream>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <system_error>
@@ -15,7 +17,14 @@ struct Task {
         std::suspend_never initial_suspend() { return {}; }
         std::suspend_never final_suspend() noexcept { return {}; }
         void return_void() {}
-        void unhandled_exception() { std::terminate(); }
+        void unhandled_exception() noexcept {
+            try {
+                throw;
+            } catch (const std::exception &e) {
+                std::cerr << e.what() << "\n";
+            } catch (...) {
+            }
+        }
     };
 };
 

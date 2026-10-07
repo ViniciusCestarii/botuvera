@@ -12,6 +12,7 @@
 #include <gtest/gtest.h>
 #include <netinet/in.h>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <sys/socket.h>
 #include <system_error>
@@ -134,6 +135,16 @@ protected:
   TCPSocket listener_;
 };
 
+// Stands in for any unexpected exception while serving a request.
+struct ThrowingConn {
+  TCPSocket sock;
+  int fd() const { return sock.fd(); }
+  IOResult poll_recv(void *, size_t, ssize_t &) {
+    throw std::runtime_error("boom");
+  }
+  IOResult poll_send(const char *&, size_t &) { return IOResult::Error; }
+};
+
 std::string status_line_at(const std::string &response, size_t from) {
   auto start = response.find("HTTP/1.", from);
   if (start == std::string::npos)
@@ -234,4 +245,15 @@ TEST_F(SessionE2ETest, ClosesTricklingConnectionAfterTimeout) {
       << "a client sending a byte at a time kept the connection open";
   EXPECT_GE(*closed_after, std::chrono::milliseconds(200))
       << "server closed the connection before the timeout";
+}
+
+TEST_F(SessionE2ETest, ExceptionClosesOnlyThatConnection) {
+  int fds[2];
+  ASSERT_EQ(::socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+  serve_connection(ThrowingConn{TCPSocket(fds[0])}, *file_server_);
+
+  char buf[1];
+  EXPECT_EQ(::recv(fds[1], buf, sizeof(buf), MSG_DONTWAIT), 0)
+      << "connection wasn't closed after the exception";
+  ::close(fds[1]);
 }
